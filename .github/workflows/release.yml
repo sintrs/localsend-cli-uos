@@ -96,16 +96,28 @@ jobs:
 
   publish:
     needs: [check, linux, windows]
-    if: always() && needs.check.outputs.need == 'true' && needs.linux.result == 'success'
+    # 不要求 linux 整体 success：矩阵里某一个架构挂了，其余产物照样发出去更有用。
+    # 真正的守门是下面「检查产物」那一步 —— 一个文件都没有才失败。
+    if: always() && needs.check.outputs.need == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v6
+        continue-on-error: true      # 没有产物时它自己会失败，交给下一步判断
         with:
           path: dist
           merge-multiple: true
 
-      - name: 列出产物
-        run: ls -lh dist/
+      - name: 检查产物
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(dist/*)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::没有任何构建产物，所有矩阵任务都失败了"
+            exit 1
+          fi
+          echo "共 ${#files[@]} 个产物："
+          ls -lh dist/
 
       - name: 生成 release 说明
         env:
