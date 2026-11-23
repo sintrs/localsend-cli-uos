@@ -86,16 +86,18 @@ jobs:
     with:
       version: ${{ needs.check.outputs.version }}
 
-  windows:
-    needs: check
-    if: needs.check.outputs.need == 'true'
-    uses: ./.github/workflows/build-windows.yml
-    # 注意：调用 reusable workflow 的 job 不允许写 continue-on-error（GitHub 语法限制，
-    # 写了会直接报 "Unexpected value 'continue-on-error'"）。所以 Windows 失败会让整个
-    # run 变红；但下面的 publish 只要求 linux 成功，Linux 产物照样发布，只是少了 exe。
+  # Windows 安装包默认不参与发布。
+  # 构建本身是通的（未签名 MSIX + Inno 的 /DSkipSignTool 都验证过），
+  # 但它要跑 20 分钟、只产出 GUI 的 exe，对 CLI 用途没有增益。
+  # 需要时手动触发 build-windows.yml 即可；要恢复自动发布，把下面这段放开：
+
+  # windows:
+  #   needs: check
+  #   if: needs.check.outputs.need == 'true'
+  #   uses: ./.github/workflows/build-windows.yml
 
   publish:
-    needs: [check, linux, windows]
+    needs: [check, linux]
     # 不要求 linux 整体 success：矩阵里某一个架构挂了，其余产物照样发出去更有用。
     # 真正的守门是下面「检查产物」那一步 —— 一个文件都没有才失败。
     if: always() && needs.check.outputs.need == 'true'
@@ -153,9 +155,13 @@ jobs:
             echo
             echo "> 老系统（UOS 20、Debian 10、CentOS 7 等）请用 \`uos20-*\` 版，"
             echo "> 否则会报 \`GLIBC_2.34 not found\`。"
-            echo ">"
-            echo "> Windows 安装包未经代码签名（上游用的是付费 Azure Trusted Signing），"
-            echo "> 首次运行会出现 SmartScreen 提示，点「更多信息 → 仍要运行」即可。"
+            shopt -s nullglob
+            exes=(dist/*.exe)
+            if [ ${#exes[@]} -gt 0 ]; then
+              echo ">"
+              echo "> Windows 安装包未经代码签名（上游用的是付费 Azure Trusted Signing），"
+              echo "> 首次运行会出现 SmartScreen 提示，点「更多信息 → 仍要运行」即可。"
+            fi
           } > notes.md
           cat notes.md
 
@@ -163,16 +169,21 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: v${{ needs.check.outputs.version }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          if gh release view "$TAG" >/dev/null 2>&1; then
+          # 这个 job 没有 checkout，目录里没有 .git，gh 自己推断不出仓库，
+          # 会报 "failed to run git: fatal: not a git repository"。
+          # 所以所有 gh 命令都显式带 -R。
+          if gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
             echo "已有 $TAG，覆盖资产"
-            gh release upload "$TAG" dist/* --clobber
+            gh release upload "$TAG" dist/* --clobber -R "$REPO"
           else
             echo "创建 $TAG"
-            gh release create "$TAG" dist/* \
+            gh release create "$TAG" dist/* -R "$REPO" \
               --title "LocalSend CLI ${TAG#v}" \
               --notes-file notes.md \
               --latest
           fi
-          gh release view "$TAG" --json url,assets --jq '"\(.url)  资产 \(.assets|length) 个"'
+          gh release view "$TAG" -R "$REPO" --json url,assets \
+            --jq '"\(.url)  资产 \(.assets|length) 个"'
