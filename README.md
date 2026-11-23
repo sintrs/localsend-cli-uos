@@ -7,7 +7,7 @@
 ## 与上游的关系
 
 - 源码 100% 来自上游 [`localsend/localsend`](https://github.com/localsend/localsend) 的 `main` 分支，**不做任何修改**
-- 每天 UTC 20:00（北京 04:00）读一次上游 `cli/Cargo.toml` 的版本号
+- 每天 UTC 20:07（北京 04:07）读一次上游 `cli/Cargo.toml` 的版本号
 - 版本号和本仓最新 release 的 tag 不同 → 重新构建并发布；相同 → 什么都不做
 - 想强制重建当前版本：Actions → Build & Release → Run workflow → 勾选 `force`
 

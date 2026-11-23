@@ -4,9 +4,12 @@ name: Build & Release
 # 和本仓库最新 release 的 tag 比；有变化就重建全部产物并发布。
 #
 # 本仓库不是 fork，所以 schedule 可以正常调度 —— 这是它存在的核心理由。
+#
+# cron 故意错开整点：GitHub 的调度队列在整点最拥挤，:00 最容易排队等待，
+# 排到 :07 能少等几分钟，构建通常在 04:15 前完成，本机 10:00 取包绰绰有余。
 on:
   schedule:
-    - cron: '0 20 * * *'      # UTC 20:00 = 北京次日 04:00
+    - cron: '7 20 * * *'      # UTC 20:07 = 北京次日 04:07（避开整点高峰）
   workflow_dispatch:
     inputs:
       force:
