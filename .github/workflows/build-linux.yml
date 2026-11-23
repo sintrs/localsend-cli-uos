@@ -89,6 +89,12 @@ jobs:
             suffix: uos20-arm-64
     runs-on: ${{ matrix.runner }}
     container: debian:10
+    # 容器作业的默认 shell 是 sh（debian:10 里是 dash），
+    # 不支持 `set -o pipefail`，会直接报 "Illegal option -o pipefail"。
+    # 全部 run 步骤改用 bash。
+    defaults:
+      run:
+        shell: bash
     steps:
       # buster 已 EOL，源要切到 archive，且不再校验 Valid-Until
       - name: Install build dependencies
