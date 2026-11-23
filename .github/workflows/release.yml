@@ -90,8 +90,9 @@ jobs:
     needs: check
     if: needs.check.outputs.need == 'true'
     uses: ./.github/workflows/build-windows.yml
-    # Windows 构建最脆（Flutter + Windows SDK + Inno），允许它失败而不拖累 Linux 产物
-    continue-on-error: true
+    # 注意：调用 reusable workflow 的 job 不允许写 continue-on-error（GitHub 语法限制，
+    # 写了会直接报 "Unexpected value 'continue-on-error'"）。所以 Windows 失败会让整个
+    # run 变红；但下面的 publish 只要求 linux 成功，Linux 产物照样发布，只是少了 exe。
 
   publish:
     needs: [check, linux, windows]
