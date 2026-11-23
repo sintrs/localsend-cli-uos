@@ -1,0 +1,165 @@
+name: Build & Release
+
+# 每天检查上游 localsend/localsend 的 cli/Cargo.toml 版本号，
+# 和本仓库最新 release 的 tag 比；有变化就重建全部产物并发布。
+#
+# 本仓库不是 fork，所以 schedule 可以正常调度 —— 这是它存在的核心理由。
+on:
+  schedule:
+    - cron: '0 20 * * *'      # UTC 20:00 = 北京次日 04:00
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 忽略版本比对，强制重建当前版本
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-release
+  cancel-in-progress: false
+
+env:
+  UPSTREAM: localsend/localsend
+  REF: main
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      sha: ${{ steps.v.outputs.sha }}
+      need: ${{ steps.v.outputs.need }}
+    steps:
+      - name: 读上游版本并比对
+        id: v
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+
+          CARGO="$(gh api "repos/${UPSTREAM}/contents/cli/Cargo.toml?ref=${REF}" \
+                    -H 'Accept: application/vnd.github.raw')"
+          VER="$(printf '%s\n' "$CARGO" \
+                  | sed -n 's/^version[[:space:]]*=[[:space:]]*"\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p' \
+                  | head -1)"
+          [ -n "$VER" ] || { echo "::error::无法从上游 cli/Cargo.toml 解析版本号"; exit 1; }
+
+          SHA="$(gh api "repos/${UPSTREAM}/commits/${REF}" --jq .sha)"
+
+          LATEST="$(gh release view -R "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null || true)"
+
+          if [ "${FORCE}" = "true" ]; then
+            NEED=true; WHY="手动强制重建"
+          elif [ "$LATEST" = "v${VER}" ]; then
+            NEED=false; WHY="已是最新（${LATEST}）"
+          else
+            NEED=true; WHY="上游版本 ${VER}，本仓最新 ${LATEST:-无 release}"
+          fi
+
+          echo "上游 cli/Cargo.toml 版本: $VER"
+          echo "上游 commit: $SHA"
+          echo "决定: $WHY"
+
+          {
+            echo "### 版本检查"
+            echo ""
+            echo "| 项 | 值 |"
+            echo "|---|---|"
+            echo "| 上游版本 | \`$VER\` |"
+            echo "| 上游 commit | \`$SHA\` |"
+            echo "| 本仓最新 tag | \`${LATEST:-（无）}\` |"
+            echo "| 结论 | $WHY |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA"    >> "$GITHUB_OUTPUT"
+          echo "need=$NEED"  >> "$GITHUB_OUTPUT"
+
+  linux:
+    needs: check
+    if: needs.check.outputs.need == 'true'
+    uses: ./.github/workflows/build-linux.yml
+    with:
+      version: ${{ needs.check.outputs.version }}
+
+  windows:
+    needs: check
+    if: needs.check.outputs.need == 'true'
+    uses: ./.github/workflows/build-windows.yml
+    # Windows 构建最脆（Flutter + Windows SDK + Inno），允许它失败而不拖累 Linux 产物
+    continue-on-error: true
+
+  publish:
+    needs: [check, linux, windows]
+    if: always() && needs.check.outputs.need == 'true' && needs.linux.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v6
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: 列出产物
+        run: ls -lh dist/
+
+      - name: 生成 release 说明
+        env:
+          VER: ${{ needs.check.outputs.version }}
+          SHA: ${{ needs.check.outputs.sha }}
+        run: |
+          set -euo pipefail
+          SHORT="$(printf '%s' "$SHA" | cut -c1-7)"
+          {
+            echo "对应上游 [\`${UPSTREAM}\`](https://github.com/${UPSTREAM}) 的 \`${REF}\` @ \`${SHORT}\`"
+            echo
+            echo "| 资产 | 适用环境 |"
+            echo "|---|---|"
+            for f in dist/*; do
+              n="$(basename "$f")"
+              case "$n" in
+                *uos20-x86-64.tar.gz) d="glibc 2.28，x86-64（UOS 20 / Debian 10+）" ;;
+                *uos20-arm-64.tar.gz) d="glibc 2.28，aarch64（同上）" ;;
+                *linux-x86-64.tar.gz) d="glibc ≥ 2.35，x86-64（Ubuntu 22.04+）" ;;
+                *linux-arm-64.tar.gz) d="glibc ≥ 2.35，aarch64（同上）" ;;
+                *.exe)                 d="Windows 10/11 x64，未签名" ;;
+                *)                     d="—" ;;
+              esac
+              echo "| \`${n}\` | ${d} |"
+            done
+            echo
+            echo "CLI 安装："
+            echo
+            echo '```bash'
+            echo "tar -xzf <对应的 tar.gz> -C ~/.local/bin"
+            echo "localsend-cli --version"
+            echo '```'
+            echo
+            echo "> 老系统（UOS 20、Debian 10、CentOS 7 等）请用 \`uos20-*\` 版，"
+            echo "> 否则会报 \`GLIBC_2.34 not found\`。"
+            echo ">"
+            echo "> Windows 安装包未经代码签名（上游用的是付费 Azure Trusted Signing），"
+            echo "> 首次运行会出现 SmartScreen 提示，点「更多信息 → 仍要运行」即可。"
+          } > notes.md
+          cat notes.md
+
+      - name: 发布
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v${{ needs.check.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "已有 $TAG，覆盖资产"
+            gh release upload "$TAG" dist/* --clobber
+          else
+            echo "创建 $TAG"
+            gh release create "$TAG" dist/* \
+              --title "LocalSend CLI ${TAG#v}" \
+              --notes-file notes.md \
+              --latest
+          fi
+          gh release view "$TAG" --json url,assets --jq '"\(.url)  资产 \(.assets|length) 个"'
