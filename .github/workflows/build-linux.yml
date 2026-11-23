@@ -15,10 +15,20 @@ on:
         type: string
         required: false
         default: ''
+      date:
+        description: 构建日期 YYYYMMDD，拼进资产名；留空则不带日期
+        type: string
+        required: false
+        default: ''
   workflow_dispatch:
     inputs:
       version:
         description: 版本号，留空则从 cli/Cargo.toml 读
+        type: string
+        required: false
+        default: ''
+      date:
+        description: 构建日期 YYYYMMDD，拼进资产名；留空则不带日期
         type: string
         required: false
         default: ''
@@ -59,6 +69,7 @@ jobs:
         working-directory: src
         env:
           GIVEN: ${{ inputs.version }}
+          DAY: ${{ inputs.date }}
           SUFFIX: ${{ matrix.suffix }}
         run: |
           set -euo pipefail
@@ -67,10 +78,12 @@ jobs:
             V="$(sed -n 's/^version[[:space:]]*=[[:space:]]*"\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p' cli/Cargo.toml | head -1)"
           fi
           [ -n "$V" ] || { echo "::error::无法确定版本号"; exit 1; }
+          # 日期可选：有就拼进文件名（LocalSend-CLI-1.19.0-20261123-linux-x86-64.tar.gz），
+          # 没有就退回纯版本号，方便单独手动触发时不留日期。
+          NAME="LocalSend-CLI-${V}${DAY:+-$DAY}-${SUFFIX}.tar.gz"
           mkdir -p "$GITHUB_WORKSPACE/out"
-          tar -czvf "$GITHUB_WORKSPACE/out/LocalSend-CLI-${V}-${SUFFIX}.tar.gz" \
-            -C target/release localsend-cli
-          echo "产出: LocalSend-CLI-${V}-${SUFFIX}.tar.gz"
+          tar -czvf "$GITHUB_WORKSPACE/out/$NAME" -C target/release localsend-cli
+          echo "产出: $NAME"
 
       - uses: actions/upload-artifact@v6
         with:
@@ -135,6 +148,7 @@ jobs:
         working-directory: src
         env:
           GIVEN: ${{ inputs.version }}
+          DAY: ${{ inputs.date }}
           SUFFIX: ${{ matrix.suffix }}
         run: |
           set -euo pipefail
@@ -143,10 +157,12 @@ jobs:
             V="$(sed -n 's/^version[[:space:]]*=[[:space:]]*"\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p' cli/Cargo.toml | head -1)"
           fi
           [ -n "$V" ] || { echo "::error::无法确定版本号"; exit 1; }
+          # 日期可选：有就拼进文件名（LocalSend-CLI-1.19.0-20261123-linux-x86-64.tar.gz），
+          # 没有就退回纯版本号，方便单独手动触发时不留日期。
+          NAME="LocalSend-CLI-${V}${DAY:+-$DAY}-${SUFFIX}.tar.gz"
           mkdir -p "$GITHUB_WORKSPACE/out"
-          tar -czvf "$GITHUB_WORKSPACE/out/LocalSend-CLI-${V}-${SUFFIX}.tar.gz" \
-            -C target/release localsend-cli
-          echo "产出: LocalSend-CLI-${V}-${SUFFIX}.tar.gz"
+          tar -czvf "$GITHUB_WORKSPACE/out/$NAME" -C target/release localsend-cli
+          echo "产出: $NAME"
 
       - uses: actions/upload-artifact@v6
         with:

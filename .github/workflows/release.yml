@@ -1,7 +1,10 @@
 name: Build & Release
 
-# 每天检查上游 localsend/localsend 的 cli/Cargo.toml 版本号，
-# 和本仓库最新 release 的 tag 比；有变化就重建全部产物并发布。
+# 每天构建一次，tag 带当天日期：v1.19.0-20261123
+#
+# 为什么用日期而不是纯版本号：上游 cli 的版本一个多月才动一次，纯版本号做 tag 会让
+# 「今天构建的」和「一个月前构建的」长得一模一样，本地也不可能有新包可拉。
+# 带上日期后，每天都是一个独立 release，本地按 tag 比一次就知道有没有新东西。
 #
 # 本仓库不是 fork，所以 schedule 可以正常调度 —— 这是它存在的核心理由。
 #
@@ -13,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       force:
-        description: 忽略版本比对，强制重建当前版本
+        description: 今天已发过也再构建一次（覆盖同名 tag 的资产）
         type: boolean
         default: false
 
@@ -34,9 +37,11 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
       sha: ${{ steps.v.outputs.sha }}
+      date: ${{ steps.v.outputs.date }}
+      tag: ${{ steps.v.outputs.tag }}
       need: ${{ steps.v.outputs.need }}
     steps:
-      - name: 读上游版本并比对
+      - name: 算出今天的 tag 并判断是否需要构建
         id: v
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -53,18 +58,27 @@ jobs:
 
           SHA="$(gh api "repos/${UPSTREAM}/commits/${REF}" --jq .sha)"
 
-          LATEST="$(gh release view -R "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null || true)"
+          # 日期必须取北京时区。cron 在 UTC 20:07 跑，此刻 UTC 还是前一天，
+          # 用 date -u 会让 tag 永远比北京日历少一天（fork 时代踩过这个坑：
+          # 早上手动发版时 tag 和前一天完全相同，资产被 --clobber 覆盖，看起来像没发布）。
+          DATE="$(TZ=Asia/Shanghai date +%Y%m%d)"
+          TAG="v${VER}-${DATE}"
+
+          EXISTS=0
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 && EXISTS=1
 
           if [ "${FORCE}" = "true" ]; then
-            NEED=true; WHY="手动强制重建"
-          elif [ "$LATEST" = "v${VER}" ]; then
-            NEED=false; WHY="已是最新（${LATEST}）"
+            NEED=true;  WHY="手动强制重建，覆盖 $TAG"
+          elif [ "$EXISTS" = 1 ]; then
+            NEED=false; WHY="今天已经发过 $TAG，跳过"
           else
-            NEED=true; WHY="上游版本 ${VER}，本仓最新 ${LATEST:-无 release}"
+            NEED=true;  WHY="今天的 $TAG 还不存在"
           fi
 
           echo "上游 cli/Cargo.toml 版本: $VER"
           echo "上游 commit: $SHA"
+          echo "构建日期: $DATE"
+          echo "目标 tag: $TAG"
           echo "决定: $WHY"
 
           {
@@ -74,13 +88,16 @@ jobs:
             echo "|---|---|"
             echo "| 上游版本 | \`$VER\` |"
             echo "| 上游 commit | \`$SHA\` |"
-            echo "| 本仓最新 tag | \`${LATEST:-（无）}\` |"
+            echo "| 构建日期（北京） | \`$DATE\` |"
+            echo "| 目标 tag | \`$TAG\` |"
             echo "| 结论 | $WHY |"
           } >> "$GITHUB_STEP_SUMMARY"
 
           echo "version=$VER" >> "$GITHUB_OUTPUT"
-          echo "sha=$SHA"    >> "$GITHUB_OUTPUT"
-          echo "need=$NEED"  >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA"     >> "$GITHUB_OUTPUT"
+          echo "date=$DATE"   >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG"     >> "$GITHUB_OUTPUT"
+          echo "need=$NEED"   >> "$GITHUB_OUTPUT"
 
   linux:
     needs: check
@@ -88,6 +105,7 @@ jobs:
     uses: ./.github/workflows/build-linux.yml
     with:
       version: ${{ needs.check.outputs.version }}
+      date: ${{ needs.check.outputs.date }}
 
   # Windows 安装包默认不参与发布。
   # 构建本身是通的（未签名 MSIX + Inno 的 /DSkipSignTool 都验证过），
@@ -128,11 +146,13 @@ jobs:
         env:
           VER: ${{ needs.check.outputs.version }}
           SHA: ${{ needs.check.outputs.sha }}
+          DATE: ${{ needs.check.outputs.date }}
         run: |
           set -euo pipefail
           SHORT="$(printf '%s' "$SHA" | cut -c1-7)"
+          HUMAN="${DATE:0:4}-${DATE:4:2}-${DATE:6:2}"
           {
-            echo "对应上游 [\`${UPSTREAM}\`](https://github.com/${UPSTREAM}) 的 \`${REF}\` @ \`${SHORT}\`"
+            echo "构建于 **${HUMAN}**（北京时间），对应上游 [\`${UPSTREAM}\`](https://github.com/${UPSTREAM}) 的 \`${REF}\` @ \`${SHORT}\`"
             echo
             echo "| 资产 | 适用环境 |"
             echo "|---|---|"
@@ -171,22 +191,27 @@ jobs:
       - name: 发布
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: v${{ needs.check.outputs.version }}
+          TAG: ${{ needs.check.outputs.tag }}
+          VER: ${{ needs.check.outputs.version }}
+          DATE: ${{ needs.check.outputs.date }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           # 这个 job 没有 checkout，目录里没有 .git，gh 自己推断不出仓库，
           # 会报 "failed to run git: fatal: not a git repository"。
           # 所以所有 gh 命令都显式带 -R。
+          HUMAN="${DATE:0:4}-${DATE:4:2}-${DATE:6:2}"
+          TITLE="LocalSend CLI ${VER} · ${HUMAN}"
+
           if gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
-            echo "已有 $TAG，覆盖资产并刷新说明"
+            echo "已有 $TAG（force 重建），覆盖资产并刷新说明"
             gh release upload "$TAG" dist/* --clobber -R "$REPO"
             # 说明模板改了也要能生效，否则旧 release 永远停在首次创建时的文字
-            gh release edit "$TAG" -R "$REPO" --notes-file notes.md
+            gh release edit "$TAG" -R "$REPO" --notes-file notes.md --title "$TITLE"
           else
             echo "创建 $TAG"
             gh release create "$TAG" dist/* -R "$REPO" \
-              --title "LocalSend CLI ${TAG#v}" \
+              --title "$TITLE" \
               --notes-file notes.md \
               --latest
           fi

@@ -7,22 +7,24 @@
 ## 与上游的关系
 
 - 源码 100% 来自上游 [`localsend/localsend`](https://github.com/localsend/localsend) 的 `main` 分支，**不做任何修改**
-- 每天 UTC 20:07（北京 04:07）读一次上游 `cli/Cargo.toml` 的版本号
-- 版本号和本仓最新 release 的 tag 不同 → 重新构建并发布；相同 → 什么都不做
-- 想强制重建当前版本：Actions → Build & Release → Run workflow → 勾选 `force`
+- 每天 UTC 20:07（北京 04:07）构建一次，**tag 带当天日期**：`v1.19.0-20261123`
+- 今天这个 tag 已经发过 → 跳过；还没发过 → 构建并发布
+- 想当天再构建一次：Actions → Build & Release → Run workflow → 勾选 `force`（覆盖同名 tag 的资产）
 
-版本号的唯一来源是上游源码里的 `cli/Cargo.toml`，所以 tag、资产名、`--version` 输出三者天然一致，构建过程不会改写任何源码。
+**为什么 tag 带日期**：上游 CLI 的版本号（`cli/Cargo.toml`）一个多月才动一次，如果用纯版本号做 tag，今天构建的和一个月前的会完全相同，下游也就无从判断有没有新包。带上日期后每天都是一个独立 release，按 tag 比一次就知道要不要更新。
+
+版本号仍然只来自上游 `cli/Cargo.toml`，tag 和资产名里的版本部分与程序 `--version` 输出完全一致，构建过程不改写任何源码。日期部分只用来区分「哪天的构建」，不参与版本语义。
 
 ## 产物
 
-每次发布 4 个 Linux CLI 包：
+每次发布 4 个 Linux CLI 包，文件名里的 `<ver>-<date>` 与 tag 对应（例如 `v1.19.0-20261123` 对应 `1.19.0-20261123`）：
 
 | 文件 | 需要什么 |
 |---|---|
-| `LocalSend-CLI-<ver>-linux-x86-64.tar.gz` | glibc ≥ 2.34（Ubuntu 22.04+ / Debian 12+） |
-| `LocalSend-CLI-<ver>-linux-arm-64.tar.gz` | 同上，aarch64 |
-| `LocalSend-CLI-<ver>-uos20-x86-64.tar.gz` | **glibc 2.28**（UOS 20 / Debian 10+，兼容老旧系统） |
-| `LocalSend-CLI-<ver>-uos20-arm-64.tar.gz` | 同上，aarch64 |
+| `LocalSend-CLI-<ver>-<date>-linux-x86-64.tar.gz` | glibc ≥ 2.34（Ubuntu 22.04+ / Debian 12+） |
+| `LocalSend-CLI-<ver>-<date>-linux-arm-64.tar.gz` | 同上，aarch64 |
+| `LocalSend-CLI-<ver>-<date>-uos20-x86-64.tar.gz` | **glibc 2.28**（UOS 20 / Debian 10+，兼容老旧系统） |
+| `LocalSend-CLI-<ver>-<date>-uos20-arm-64.tar.gz` | 同上，aarch64 |
 
 `uos20` 两个包在 `debian:10` 容器里编译，链到 glibc 2.28。在不支持新 glibc 的国产系统上装 `linux-*` 版会报 `GLIBC_2.34 not found`，这时用 `uos20-*` 版。
 
@@ -31,7 +33,7 @@ Windows 安装包（`build-windows.yml`）**默认不参与发布**：构建链�
 安装：
 
 ```bash
-tar -xzf LocalSend-CLI-<ver>-uos20-x86-64.tar.gz -C ~/.local/bin
+tar -xzf LocalSend-CLI-<ver>-<date>-uos20-x86-64.tar.gz -C ~/.local/bin
 localsend-cli --version
 ```
 
