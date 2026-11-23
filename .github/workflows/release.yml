@@ -176,8 +176,10 @@ jobs:
           # 会报 "failed to run git: fatal: not a git repository"。
           # 所以所有 gh 命令都显式带 -R。
           if gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
-            echo "已有 $TAG，覆盖资产"
+            echo "已有 $TAG，覆盖资产并刷新说明"
             gh release upload "$TAG" dist/* --clobber -R "$REPO"
+            # 说明模板改了也要能生效，否则旧 release 永远停在首次创建时的文字
+            gh release edit "$TAG" -R "$REPO" --notes-file notes.md
           else
             echo "创建 $TAG"
             gh release create "$TAG" dist/* -R "$REPO" \
