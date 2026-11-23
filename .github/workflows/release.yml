@@ -67,16 +67,25 @@ jobs:
           EXISTS=0
           gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 && EXISTS=1
 
+          # 上一次发布记录的上游 commit（写在 release 正文的 HTML 注释里，页面上看不见）。
+          # 用它判断「上游到底动没动」：只改日期、重复构建同一个 commit 没有意义。
+          LAST_SHA="$(gh release view -R "$GITHUB_REPOSITORY" --json body --jq .body 2>/dev/null \
+                      | sed -n 's/.*<!-- upstream-sha: \([0-9a-f]\{40\}\) -->.*/\1/p' | head -1)"
+          LAST_SHORT="${LAST_SHA:0:7}"; LAST_SHORT="${LAST_SHORT:-无记录}"
+
           if [ "${FORCE}" = "true" ]; then
             NEED=true;  WHY="手动强制重建，覆盖 $TAG"
+          elif [ -n "$LAST_SHA" ] && [ "$LAST_SHA" = "$SHA" ]; then
+            NEED=false; WHY="上游没有新提交（仍是 ${SHA:0:7}），不发布"
           elif [ "$EXISTS" = 1 ]; then
             NEED=false; WHY="今天已经发过 $TAG，跳过"
           else
-            NEED=true;  WHY="今天的 $TAG 还不存在"
+            NEED=true;  WHY="上游有新提交 ${SHA:0:7}（上次 ${LAST_SHORT}）"
           fi
 
           echo "上游 cli/Cargo.toml 版本: $VER"
           echo "上游 commit: $SHA"
+          echo "上次发布时的 commit: ${LAST_SHA:-（无记录）}"
           echo "构建日期: $DATE"
           echo "目标 tag: $TAG"
           echo "决定: $WHY"
@@ -87,7 +96,8 @@ jobs:
             echo "| 项 | 值 |"
             echo "|---|---|"
             echo "| 上游版本 | \`$VER\` |"
-            echo "| 上游 commit | \`$SHA\` |"
+            echo "| 上游 commit | \`${SHA:0:7}\` |"
+            echo "| 上次发布的 commit | \`${LAST_SHORT}\` |"
             echo "| 构建日期（北京） | \`$DATE\` |"
             echo "| 目标 tag | \`$TAG\` |"
             echo "| 结论 | $WHY |"
@@ -185,6 +195,10 @@ jobs:
               echo "> Windows 安装包未经代码签名（上游用的是付费 Azure Trusted Signing），"
               echo "> 首次运行会出现 SmartScreen 提示，点「更多信息 → 仍要运行」即可。"
             fi
+            # 机器可读标记：下次 check 靠它判断「上游有没有新提交」。
+            # HTML 注释在 release 页面上不显示，不会影响阅读。
+            echo
+            echo "<!-- upstream-sha: ${SHA} -->"
           } > notes.md
           cat notes.md
 
