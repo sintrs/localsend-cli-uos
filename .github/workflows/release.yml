@@ -138,8 +138,8 @@ jobs:
               case "$n" in
                 *uos20-x86-64.tar.gz) d="glibc 2.28，x86-64（UOS 20 / Debian 10+）" ;;
                 *uos20-arm-64.tar.gz) d="glibc 2.28，aarch64（同上）" ;;
-                *linux-x86-64.tar.gz) d="glibc ≥ 2.35，x86-64（Ubuntu 22.04+）" ;;
-                *linux-arm-64.tar.gz) d="glibc ≥ 2.35，aarch64（同上）" ;;
+                *linux-x86-64.tar.gz) d="glibc ≥ 2.34，x86-64（Ubuntu 22.04+）" ;;
+                *linux-arm-64.tar.gz) d="glibc ≥ 2.34，aarch64（同上）" ;;
                 *.exe)                 d="Windows 10/11 x64，未签名" ;;
                 *)                     d="—" ;;
               esac

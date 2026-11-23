@@ -2,8 +2,10 @@ name: Build Linux CLI
 
 # 从上游 localsend/localsend 直接构建，不依赖任何 fork。
 # 一次产出 4 个资产：
-#   linux-x86-64 / linux-arm-64   → 在 ubuntu-22.04 宿主上编译（glibc 2.35+）
-#   uos20-x86-64 / uos20-arm-64   → 在 debian:10 容器里编译（glibc 2.28，UOS 20 同款）
+#   linux-x86-64 / linux-arm-64   → 在 ubuntu-22.04 宿主上编译（宿主 glibc 2.35，
+#                                    二进制实测最高只用到 GLIBC_2.34）
+#   uos20-x86-64 / uos20-arm-64   → 在 debian:10 容器里编译（glibc 2.28，UOS 20 同款，
+#                                    实测二进制最高只用到 GLIBC_2.28）
 
 on:
   workflow_call:

@@ -19,7 +19,7 @@
 
 | 文件 | 需要什么 |
 |---|---|
-| `LocalSend-CLI-<ver>-linux-x86-64.tar.gz` | glibc ≥ 2.35（Ubuntu 22.04+ / Debian 12+） |
+| `LocalSend-CLI-<ver>-linux-x86-64.tar.gz` | glibc ≥ 2.34（Ubuntu 22.04+ / Debian 12+） |
 | `LocalSend-CLI-<ver>-linux-arm-64.tar.gz` | 同上，aarch64 |
 | `LocalSend-CLI-<ver>-uos20-x86-64.tar.gz` | **glibc 2.28**（UOS 20 / Debian 10+，兼容老旧系统） |
 | `LocalSend-CLI-<ver>-uos20-arm-64.tar.gz` | 同上，aarch64 |
